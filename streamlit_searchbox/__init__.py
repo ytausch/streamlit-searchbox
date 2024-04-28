@@ -101,6 +101,8 @@ def _set_defaults(
     key: str,
     default: Any,
     default_options: List[Any] | None = None,
+    reset: Literal["requested", "running"] | None = None,
+    rerun_on_update: bool = True,
 ) -> None:
     st.session_state[key] = {
         # updated after each selection / reset
@@ -111,6 +113,10 @@ def _set_defaults(
         "options_js": [],
         # key that is used by react component, use time suffix to reload after clear
         "key_react": f"{key}_react_{str(time.time())}",
+        # track if the defaults were set explicitly
+        "reset": reset,
+        # behavior for rerun after each search or reset/process call
+        "rerun_on_update": rerun_on_update,
     }
 
     if default_options:
@@ -160,7 +166,13 @@ def st_searchbox(
     """
 
     if key not in st.session_state:
-        _set_defaults(key, default, default_options)
+        _set_defaults(key, default, default_options, None, rerun_on_update)
+    elif st.session_state[key]["reset"] == "requested":
+        del st.session_state[st.session_state[key]["key_react"]]
+        del st.session_state[key]
+        _set_defaults(key, default, default_options, "running", rerun_on_update)
+    else:
+        st.session_state[key]["reset"] = None
 
     # everything here is passed to react as this.props.args
     react_state = _get_react_component(
@@ -200,3 +212,26 @@ def st_searchbox(
 
     # no new react interaction happened
     return st.session_state[key]["result"]
+
+
+def reset(key: str) -> None:
+    """
+    resets the searchbox state to the default values
+
+    Args:
+        key (str): searchbox key for st.session_state
+    """
+
+    if key not in st.session_state:
+        st.warning(f"Searchbox key {key} not found")
+        return
+
+    # avoid double reset or endless reruns if the defaults were last set by a reset
+    if st.session_state[key]["reset"] in ["requested", "running"]:
+        return
+
+    # actual reset happens on next searchbox call, trigger the reset to reflect changes
+    st.session_state[key]["reset"] = "requested"
+
+    if st.session_state[key]["rerun_on_update"]:
+        st.rerun()
